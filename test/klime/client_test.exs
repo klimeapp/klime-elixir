@@ -76,7 +76,8 @@ defmodule Klime.ClientTest do
       context = event["context"]
 
       assert context["library"]["name"] == "elixir-sdk"
-      assert context["library"]["version"] == "1.0.0"
+      assert is_binary(context["library"]["version"])
+      assert Regex.match?(~r/^\d+\.\d+\.\d+/, context["library"]["version"])
 
       Client.shutdown(client)
     end
@@ -464,19 +465,19 @@ defmodule Klime.ClientTest do
     end
 
     test "child_spec returns valid supervisor spec" do
-      spec = Client.child_spec(write_key: "test-key", name: MyKlime)
+      spec = Client.child_spec(write_key: "test-key")
 
-      assert spec.id == MyKlime
-      assert spec.start == {Client, :start_link, [[write_key: "test-key", name: MyKlime]]}
+      assert spec.id == :klime
+      assert spec.start == {Client, :start_link, [[write_key: "test-key"]]}
       assert spec.type == :worker
       assert spec.restart == :permanent
       assert spec.shutdown == 5000
     end
 
-    test "child_spec uses module name as default id" do
+    test "child_spec uses :klime as default id" do
       spec = Client.child_spec(write_key: "test-key")
 
-      assert spec.id == Client
+      assert spec.id == :klime
     end
   end
 

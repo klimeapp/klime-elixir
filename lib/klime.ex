@@ -4,34 +4,29 @@ defmodule Klime do
 
   ## Quick Start
 
-      # Start the client (typically in your application supervision tree)
-      {:ok, client} = Klime.Client.start_link(write_key: "your-write-key")
+  1. Configure in `config/config.exs`:
 
-      # Track events
-      Klime.track(client, "Button Clicked", %{button_name: "Sign up"}, user_id: "user_123")
+      config :klime,
+        write_key: System.get_env("KLIME_WRITE_KEY")
 
-      # Identify users
-      Klime.identify(client, "user_123", %{email: "user@example.com", name: "Stefan"})
+  2. Add to your supervision tree in `application.ex`:
 
-      # Associate with groups
-      Klime.group(client, "org_456", %{name: "Acme Inc"}, user_id: "user_123")
-
-  ## Phoenix Integration
-
-  Add to your application supervision tree:
-
-      # In application.ex
       children = [
-        {Klime.Client, write_key: System.get_env("KLIME_WRITE_KEY"), name: Klime}
+        Klime.Client
       ]
 
-      # In controllers/contexts
-      Klime.track(Klime, "Page Viewed", %{path: conn.request_path}, user_id: user.id)
+  3. Track events anywhere in your app:
+
+      Klime.track("Button Clicked", %{button: "signup"}, user_id: "user_123")
+      Klime.identify("user_123", %{email: "user@example.com"})
+      Klime.group("org_456", %{name: "Acme Inc"}, user_id: "user_123")
 
   ## Configuration Options
 
-  See `Klime.Client` for all available configuration options.
+  See `Klime.Config` for all available configuration options.
   """
+
+  @default_client :klime
 
   @doc """
   Tracks a user event (async).
@@ -45,23 +40,29 @@ defmodule Klime do
 
   ## Examples
 
-      Klime.track(client, "Button Clicked", %{button: "signup"}, user_id: "user_123")
-      Klime.track(client, "Webhook Received", %{count: 10}, group_id: "org_456")
+      Klime.track("Button Clicked", %{button: "signup"}, user_id: "user_123")
+      Klime.track("Webhook Received", %{count: 10}, group_id: "org_456")
 
   """
-  defdelegate track(client, event_name, properties \\ %{}, opts \\ []), to: Klime.Client
+  @spec track(String.t(), map(), keyword()) :: :ok
+  def track(event_name, properties \\ %{}, opts \\ []) do
+    GenServer.call(@default_client, {:track, event_name, properties, opts})
+  end
 
   @doc """
   Tracks a user event (sync) - blocks until sent, returns result.
 
-  Unlike `track/4`, this sends the event immediately and waits for the response.
+  Unlike `track/3`, this sends the event immediately and waits for the response.
 
   ## Examples
 
-      {:ok, response} = Klime.track!(client, "Button Clicked", %{button: "signup"}, user_id: "user_123")
+      {:ok, response} = Klime.track!("Button Clicked", %{button: "signup"}, user_id: "user_123")
 
   """
-  defdelegate track!(client, event_name, properties \\ %{}, opts \\ []), to: Klime.Client
+  @spec track!(String.t(), map(), keyword()) :: Klime.Client.sync_result()
+  def track!(event_name, properties \\ %{}, opts \\ []) do
+    GenServer.call(@default_client, {:track_sync, event_name, properties, opts}, :infinity)
+  end
 
   @doc """
   Identifies a user with traits (async).
@@ -70,22 +71,28 @@ defmodule Klime do
 
   ## Examples
 
-      Klime.identify(client, "user_123", %{email: "user@example.com", name: "Stefan"})
+      Klime.identify("user_123", %{email: "user@example.com", name: "Stefan"})
 
   """
-  defdelegate identify(client, user_id, traits \\ %{}), to: Klime.Client
+  @spec identify(String.t(), map()) :: :ok
+  def identify(user_id, traits \\ %{}) do
+    GenServer.call(@default_client, {:identify, user_id, traits})
+  end
 
   @doc """
   Identifies a user with traits (sync) - blocks until sent, returns result.
 
-  Unlike `identify/3`, this sends the event immediately and waits for the response.
+  Unlike `identify/2`, this sends the event immediately and waits for the response.
 
   ## Examples
 
-      {:ok, response} = Klime.identify!(client, "user_123", %{email: "user@example.com"})
+      {:ok, response} = Klime.identify!("user_123", %{email: "user@example.com"})
 
   """
-  defdelegate identify!(client, user_id, traits \\ %{}), to: Klime.Client
+  @spec identify!(String.t(), map()) :: Klime.Client.sync_result()
+  def identify!(user_id, traits \\ %{}) do
+    GenServer.call(@default_client, {:identify_sync, user_id, traits}, :infinity)
+  end
 
   @doc """
   Associates a user with a group and/or sets group traits (async).
@@ -99,25 +106,31 @@ defmodule Klime do
   ## Examples
 
       # Associate user with group and set traits
-      Klime.group(client, "org_456", %{name: "Acme Inc"}, user_id: "user_123")
+      Klime.group("org_456", %{name: "Acme Inc"}, user_id: "user_123")
 
       # Just set group traits (no user association)
-      Klime.group(client, "org_456", %{plan: "enterprise"})
+      Klime.group("org_456", %{plan: "enterprise"})
 
   """
-  defdelegate group(client, group_id, traits \\ %{}, opts \\ []), to: Klime.Client
+  @spec group(String.t(), map(), keyword()) :: :ok
+  def group(group_id, traits \\ %{}, opts \\ []) do
+    GenServer.call(@default_client, {:group, group_id, traits, opts})
+  end
 
   @doc """
   Associates a user with a group (sync) - blocks until sent, returns result.
 
-  Unlike `group/4`, this sends the event immediately and waits for the response.
+  Unlike `group/3`, this sends the event immediately and waits for the response.
 
   ## Examples
 
-      {:ok, response} = Klime.group!(client, "org_456", %{name: "Acme Inc"}, user_id: "user_123")
+      {:ok, response} = Klime.group!("org_456", %{name: "Acme Inc"}, user_id: "user_123")
 
   """
-  defdelegate group!(client, group_id, traits \\ %{}, opts \\ []), to: Klime.Client
+  @spec group!(String.t(), map(), keyword()) :: Klime.Client.sync_result()
+  def group!(group_id, traits \\ %{}, opts \\ []) do
+    GenServer.call(@default_client, {:group_sync, group_id, traits, opts}, :infinity)
+  end
 
   @doc """
   Manually flushes all queued events immediately.
@@ -126,23 +139,32 @@ defmodule Klime do
 
   ## Examples
 
-      :ok = Klime.flush(client)
+      :ok = Klime.flush()
 
   """
-  defdelegate flush(client), to: Klime.Client
+  @spec flush() :: :ok
+  def flush do
+    GenServer.call(@default_client, :flush, :infinity)
+  end
 
   @doc """
   Gracefully shuts down the client, flushing remaining events.
 
   ## Examples
 
-      :ok = Klime.shutdown(client)
+      :ok = Klime.shutdown()
 
   """
-  defdelegate shutdown(client), to: Klime.Client
+  @spec shutdown() :: :ok
+  def shutdown do
+    GenServer.call(@default_client, :shutdown, :infinity)
+  end
 
   @doc """
   Returns the current queue size (useful for debugging).
   """
-  defdelegate queue_size(client), to: Klime.Client
+  @spec queue_size() :: non_neg_integer()
+  def queue_size do
+    GenServer.call(@default_client, :queue_size)
+  end
 end

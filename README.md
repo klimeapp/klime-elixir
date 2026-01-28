@@ -22,33 +22,41 @@ mix deps.get
 
 ## Quick Start
 
-```elixir
-# Start the client (typically in your application supervision tree)
-{:ok, client} = Klime.Client.start_link(write_key: "your-write-key")
+1. Configure in `config/config.exs`:
 
+```elixir
+config :klime,
+  write_key: System.get_env("KLIME_WRITE_KEY")
+```
+
+2. Add to your supervision tree in `application.ex`:
+
+```elixir
+children = [
+  Klime.Client
+]
+```
+
+3. Track events anywhere in your app:
+
+```elixir
 # Identify a user
-Klime.identify(client, "user_123", %{
+Klime.identify("user_123", %{
   email: "user@example.com",
   name: "Stefan"
 })
 
 # Track an event
-Klime.track(client, "Button Clicked", %{
+Klime.track("Button Clicked", %{
   button_name: "Sign up",
   plan: "pro"
 }, user_id: "user_123")
 
-# Associate user with a group and set group traits
-Klime.group(client, "org_456", %{
+# Associate user with a group
+Klime.group("org_456", %{
   name: "Acme Inc",
   plan: "enterprise"
 }, user_id: "user_123")
-
-# Or just link the user to a group (if traits are already set)
-Klime.group(client, "org_456", %{}, user_id: "user_123")
-
-# Shutdown gracefully
-Klime.shutdown(client)
 ```
 
 ## Installation Prompt
@@ -70,29 +78,28 @@ KEY CONCEPTS:
 - group() links a user to a company AND sets company traits (only for Companies & Teams mode)
 - Order doesn't matter - events before identify/group still get attributed correctly
 
+SETUP:
+1. Add to mix.exs: {:klime, "~> 1.0"}
+2. Run: mix deps.get
+3. Configure in config/config.exs:
+   config :klime, write_key: System.get_env("KLIME_WRITE_KEY")
+4. Add Klime.Client to your application.ex supervision tree:
+   children = [Klime.Client]
+
 BEST PRACTICES:
-- Add Klime.Client to your application supervision tree
 - Store write key in KLIME_WRITE_KEY environment variable
 - Client automatically handles graceful shutdown when supervisor stops
 
-Add to mix.exs: {:klime, "~> 1.0"}
-Then run: mix deps.get
-
-# In application.ex
-children = [
-  {Klime.Client, write_key: System.get_env("KLIME_WRITE_KEY"), name: Klime}
-]
-
 # Identify users at signup/login:
-Klime.identify(Klime, "usr_abc123", %{email: "jane@acme.com", name: "Jane Smith"})
+Klime.identify("usr_abc123", %{email: "jane@acme.com", name: "Jane Smith"})
 
 # Track key activities:
-Klime.track(Klime, "Report Generated", %{report_type: "revenue"}, user_id: "usr_abc123")
-Klime.track(Klime, "Feature Used", %{feature: "export", format: "csv"}, user_id: "usr_abc123")
-Klime.track(Klime, "Teammate Invited", %{role: "member"}, user_id: "usr_abc123")
+Klime.track("Report Generated", %{report_type: "revenue"}, user_id: "usr_abc123")
+Klime.track("Feature Used", %{feature: "export", format: "csv"}, user_id: "usr_abc123")
+Klime.track("Teammate Invited", %{role: "member"}, user_id: "usr_abc123")
 
 # If Companies & Teams mode: link user to their company and set company traits
-Klime.group(Klime, "org_456", %{name: "Acme Inc", plan: "enterprise"}, user_id: "usr_abc123")
+Klime.group("org_456", %{name: "Acme Inc", plan: "enterprise"}, user_id: "usr_abc123")
 
 INTEGRATION WORKFLOW:
 
@@ -132,33 +139,39 @@ Report what you added:
 
 ## API Reference
 
-### Starting the Client
+### Configuration
+
+Configure Klime in `config/config.exs`:
 
 ```elixir
-# Option 1: Start directly
-{:ok, client} = Klime.Client.start_link(
-  write_key: "your-write-key",        # Required
-  endpoint: "https://i.klime.com",    # Optional (default)
-  flush_interval: 2000,               # Optional: ms between flushes (default: 2000)
-  max_batch_size: 20,                 # Optional: max events per batch (default: 20, max: 100)
-  max_queue_size: 1000,               # Optional: max queued events (default: 1000)
-  retry_max_attempts: 5,              # Optional: max retry attempts (default: 5)
-  retry_initial_delay: 1000,          # Optional: initial retry delay in ms (default: 1000)
-  flush_on_shutdown: true,            # Optional: auto-flush on shutdown (default: true)
-  on_error: &handle_error/2,          # Optional: callback for batch failures
-  on_success: &handle_success/1,      # Optional: callback for successful sends
-  name: MyApp.Klime                   # Optional: registered name
-)
+config :klime,
+  write_key: System.get_env("KLIME_WRITE_KEY"),        # Required
+  endpoint: "https://i.klime.com",                     # Optional (default)
+  flush_interval: 2000,                                # Optional: ms between flushes (default: 2000)
+  max_batch_size: 20,                                  # Optional: max events per batch (default: 20, max: 100)
+  max_queue_size: 1000,                                # Optional: max queued events (default: 1000)
+  retry_max_attempts: 5,                               # Optional: max retry attempts (default: 5)
+  retry_initial_delay: 1000,                           # Optional: initial retry delay in ms (default: 1000)
+  flush_on_shutdown: true,                             # Optional: auto-flush on shutdown (default: true)
+  on_error: &MyApp.Analytics.handle_error/2,           # Optional: callback for batch failures
+  on_success: &MyApp.Analytics.handle_success/1       # Optional: callback for successful sends
+```
 
-# Option 2: Add to supervision tree (recommended for Phoenix apps)
+### Starting the Client
+
+Add to your supervision tree in `application.ex`:
+
+```elixir
 children = [
-  {Klime.Client, write_key: System.get_env("KLIME_WRITE_KEY"), name: Klime}
+  Klime.Client
 ]
 ```
 
+The client reads configuration from the application environment and registers itself as `:klime` by default.
+
 ### Methods
 
-#### `track(client, event_name, properties \\ %{}, opts \\ [])`
+#### `track(event_name, properties \\ %{}, opts \\ [])`
 
 Track an event. Events can be attributed in two ways:
 - **User events**: Provide `user_id:` to track user activity (most common)
@@ -166,13 +179,13 @@ Track an event. Events can be attributed in two ways:
 
 ```elixir
 # User event (most common)
-Klime.track(client, "Button Clicked", %{
+Klime.track("Button Clicked", %{
   button_name: "Sign up",
   plan: "pro"
 }, user_id: "user_123")
 
 # Group event (for webhooks, cron jobs, system events)
-Klime.track(client, "Events Received", %{
+Klime.track("Events Received", %{
   count: 100,
   source: "webhook"
 }, group_id: "org_456")
@@ -186,13 +199,13 @@ For cases where you need guaranteed delivery or want to handle errors explicitly
 
 ```elixir
 # Sync track - blocks until sent, returns {:ok, response} or {:error, error}
-{:ok, response} = Klime.track!(client, "Button Clicked", %{button: "signup"}, user_id: "user_123")
+{:ok, response} = Klime.track!("Button Clicked", %{button: "signup"}, user_id: "user_123")
 
 # Sync identify
-{:ok, response} = Klime.identify!(client, "user_123", %{email: "user@example.com"})
+{:ok, response} = Klime.identify!("user_123", %{email: "user@example.com"})
 
 # Sync group
-{:ok, response} = Klime.group!(client, "org_456", %{name: "Acme Inc"}, user_id: "user_123")
+{:ok, response} = Klime.group!("org_456", %{name: "Acme Inc"}, user_id: "user_123")
 ```
 
 These methods:
@@ -203,52 +216,52 @@ These methods:
 
 Use sync methods sparingly - they add latency to your code. The async methods are preferred for most use cases.
 
-#### `identify(client, user_id, traits \\ %{})`
+#### `identify(user_id, traits \\ %{})`
 
 Identify a user with traits.
 
 ```elixir
-Klime.identify(client, "user_123", %{
+Klime.identify("user_123", %{
   email: "user@example.com",
   name: "Stefan"
 })
 ```
 
-#### `group(client, group_id, traits \\ %{}, opts \\ [])`
+#### `group(group_id, traits \\ %{}, opts \\ [])`
 
 Associate a user with a group and/or set group traits.
 
 ```elixir
 # Associate user with a group and set group traits (most common)
-Klime.group(client, "org_456", %{
+Klime.group("org_456", %{
   name: "Acme Inc",
   plan: "enterprise"
 }, user_id: "user_123")
 
 # Just link a user to a group (traits already set or not needed)
-Klime.group(client, "org_456", %{}, user_id: "user_123")
+Klime.group("org_456", %{}, user_id: "user_123")
 
 # Just update group traits (e.g., from a webhook or background job)
-Klime.group(client, "org_456", %{
+Klime.group("org_456", %{
   plan: "enterprise",
   employee_count: 50
 })
 ```
 
-#### `flush(client)`
+#### `flush()`
 
 Manually flush queued events immediately.
 
 ```elixir
-:ok = Klime.flush(client)
+:ok = Klime.flush()
 ```
 
-#### `shutdown(client)`
+#### `shutdown()`
 
 Gracefully shutdown the client, flushing remaining events.
 
 ```elixir
-:ok = Klime.shutdown(client)
+:ok = Klime.shutdown()
 ```
 
 ## Features
@@ -257,6 +270,7 @@ Gracefully shutdown the client, flushing remaining events.
 - **Automatic Retries**: Failed requests are automatically retried with exponential backoff
 - **Async & Sync Methods**: Use async methods for fire-and-forget, or sync (`track!`, `identify!`, `group!`) for guaranteed delivery
 - **OTP Supervision**: GenServer-based client integrates naturally with OTP supervision trees
+- **Application Config**: Configure once in `config.exs`, no need to pass client around
 - **Plug Middleware**: Optional `Klime.Plug` for per-request flush in Phoenix/Plug apps
 - **Graceful Shutdown**: Automatically flushes events when the supervisor stops (with `flush_on_shutdown: true`)
 - **Callbacks**: `on_error` and `on_success` callbacks for monitoring
@@ -264,7 +278,7 @@ Gracefully shutdown the client, flushing remaining events.
 
 ## Performance
 
-When you call `track/4`, `identify/3`, or `group/4`, the SDK:
+When you call `track/3`, `identify/2`, or `group/3`, the SDK:
 
 1. Adds the event to an in-memory queue (microseconds)
 2. Returns immediately without waiting for network I/O
@@ -277,13 +291,13 @@ Events are sent to Klime's servers asynchronously. This means:
 
 ```elixir
 # This returns immediately - no HTTP request is made here
-Klime.track(client, "Button Clicked", %{button: "signup"}, user_id: "user_123")
+Klime.track("Button Clicked", %{button: "signup"}, user_id: "user_123")
 
 # Your code continues without waiting
 json(conn, %{success: true})
 ```
 
-The only blocking operation is `flush/1`, which waits for all queued events to be sent. This is typically only called during graceful shutdown.
+The only blocking operation is `flush/0`, which waits for all queued events to be sent. This is typically only called during graceful shutdown.
 
 ## Configuration
 
@@ -299,9 +313,9 @@ The only blocking operation is `flush/1`, which waits for all queued events to b
 ### Callbacks
 
 ```elixir
-{Klime.Client,
+# In config/config.exs
+config :klime,
   write_key: System.get_env("KLIME_WRITE_KEY"),
-  name: Klime,
   on_error: fn error, _events ->
     Logger.error("Klime error: #{inspect(error)}")
     Sentry.capture_exception(error)
@@ -309,7 +323,6 @@ The only blocking operation is `flush/1`, which waits for all queued events to b
   on_success: fn response ->
     Logger.info("Sent #{response.accepted} events")
   end
-}
 ```
 
 ### Plug Middleware
@@ -318,7 +331,7 @@ For guaranteed per-request delivery, use `Klime.Plug` to flush events after each
 
 ```elixir
 # In your Phoenix endpoint.ex or router.ex
-plug Klime.Plug, client: Klime
+plug Klime.Plug, client: :klime
 ```
 
 > **Note**: This adds latency to every request as it waits for the flush.
@@ -344,6 +357,12 @@ Events exceeding these limits are rejected and logged.
 ## Phoenix Example
 
 ```elixir
+# config/config.exs
+config :klime,
+  write_key: System.get_env("KLIME_WRITE_KEY")
+```
+
+```elixir
 # lib/my_app/application.ex
 defmodule MyApp.Application do
   use Application
@@ -351,7 +370,7 @@ defmodule MyApp.Application do
   def start(_type, _args) do
     children = [
       MyAppWeb.Endpoint,
-      {Klime.Client, write_key: System.get_env("KLIME_WRITE_KEY"), name: Klime}
+      Klime.Client
     ]
 
     opts = [strategy: :one_for_one, name: MyApp.Supervisor]
@@ -368,7 +387,7 @@ defmodule MyAppWeb.ButtonController do
   def click(conn, %{"button_name" => button_name}) do
     user_id = conn.assigns[:current_user] && conn.assigns.current_user.id
 
-    Klime.track(Klime, "Button Clicked", %{
+    Klime.track("Button Clicked", %{
       button_name: button_name
     }, user_id: user_id)
 
@@ -387,7 +406,7 @@ defmodule MyAppWeb.DashboardLive do
   def mount(_params, _session, socket) do
     user = socket.assigns.current_user
 
-    Klime.track(Klime, "Dashboard Viewed", %{}, user_id: user.id)
+    Klime.track("Dashboard Viewed", %{}, user_id: user.id)
 
     {:ok, socket}
   end
@@ -395,7 +414,7 @@ defmodule MyAppWeb.DashboardLive do
   def handle_event("export", %{"format" => format}, socket) do
     user = socket.assigns.current_user
 
-    Klime.track(Klime, "Export Clicked", %{format: format}, user_id: user.id)
+    Klime.track("Export Clicked", %{format: format}, user_id: user.id)
 
     {:noreply, socket}
   end

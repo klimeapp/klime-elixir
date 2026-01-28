@@ -32,36 +32,26 @@ defmodule Klime.Client do
 
   ## Usage
 
-  Start the client as part of your application's supervision tree:
+  Configure Klime in your `config/config.exs`:
+
+      config :klime,
+        write_key: System.get_env("KLIME_WRITE_KEY")
+
+  Add to your application's supervision tree:
 
       children = [
-        {Klime.Client, write_key: "your-write-key", name: Klime}
+        Klime.Client
       ]
 
-  Or start it directly:
+  Then track events:
 
-      {:ok, client} = Klime.Client.start_link(write_key: "your-write-key")
-
-  Then use it to track events:
-
-      Klime.Client.track(client, "Button Clicked", %{button: "signup"}, user_id: "user_123")
-      Klime.Client.identify(client, "user_123", %{email: "user@example.com"})
-      Klime.Client.group(client, "org_456", %{name: "Acme Inc"}, user_id: "user_123")
+      Klime.track("Button Clicked", %{button: "signup"}, user_id: "user_123")
+      Klime.identify("user_123", %{email: "user@example.com"})
+      Klime.group("org_456", %{name: "Acme Inc"}, user_id: "user_123")
 
   ## Configuration Options
 
-    * `:write_key` - Required. Your Klime write key.
-    * `:endpoint` - API endpoint URL. Default: `"https://i.klime.com"`
-    * `:flush_interval` - Milliseconds between auto-flushes. Default: `2000`
-    * `:max_batch_size` - Maximum events per batch. Default: `20`, max: `100`
-    * `:max_queue_size` - Maximum queued events. Default: `1000`
-    * `:retry_max_attempts` - Maximum retry attempts. Default: `5`
-    * `:retry_initial_delay` - Initial retry delay in ms. Default: `1000`
-    * `:flush_on_shutdown` - Auto-flush on shutdown. Default: `true`
-    * `:on_error` - Callback function `(error, events) -> any()` for batch failures
-    * `:on_success` - Callback function `(response) -> any()` for batch success
-    * `:name` - Optional name to register the GenServer
-
+  See `Klime.Config` for all available configuration options.
   """
 
   use GenServer
@@ -69,7 +59,10 @@ defmodule Klime.Client do
 
   alias Klime.{Config, Event, EventType, EventContext, LibraryInfo, BatchResponse}
 
-  @version "1.0.1"
+  @version "1.1.0"
+
+  # Default process name
+  @default_name :klime
 
   @typedoc "Client process reference (pid or registered name)"
   @type client :: GenServer.server()
@@ -85,17 +78,26 @@ defmodule Klime.Client do
   @doc """
   Returns a child specification for starting the client under a supervisor.
 
+  When started without options, reads configuration from application environment
+  and registers with the default name `:klime`.
+
   ## Examples
 
+      # Using application config (recommended)
       children = [
-        {Klime.Client, write_key: "your-write-key", name: Klime}
+        Klime.Client
+      ]
+
+      # With explicit options (overrides application config)
+      children = [
+        {Klime.Client, write_key: "your-write-key"}
       ]
 
   """
   @spec child_spec(keyword()) :: Supervisor.child_spec()
-  def child_spec(opts) do
+  def child_spec(opts \\ []) do
     %{
-      id: opts[:name] || __MODULE__,
+      id: @default_name,
       start: {__MODULE__, :start_link, [opts]},
       type: :worker,
       restart: :permanent,
@@ -106,23 +108,29 @@ defmodule Klime.Client do
   @doc """
   Starts the Klime client GenServer.
 
-  ## Options
-
-  See module documentation for available options.
+  When called without options or with an empty list, reads configuration from
+  the application environment and registers with the default name `:klime`.
 
   ## Examples
 
-      {:ok, client} = Klime.Client.start_link(write_key: "your-write-key")
+      # Using application config (recommended)
+      {:ok, _pid} = Klime.Client.start_link()
 
-      # With a registered name
-      {:ok, _} = Klime.Client.start_link(write_key: "your-write-key", name: MyApp.Klime)
+      # With explicit options
+      {:ok, _pid} = Klime.Client.start_link(write_key: "your-write-key")
 
   """
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts) do
-    {name, opts} = Keyword.pop(opts, :name)
+  def start_link(opts \\ []) do
+    # Merge with application config, explicit opts take precedence
+    config = Config.get_config()
+    merged_opts = Keyword.merge(config, opts)
+
+    # Default to :klime name if not specified
+    {name, init_opts} = Keyword.pop(merged_opts, :name, @default_name)
     gen_opts = if name, do: [name: name], else: []
-    GenServer.start_link(__MODULE__, opts, gen_opts)
+
+    GenServer.start_link(__MODULE__, init_opts, gen_opts)
   end
 
   @doc """
