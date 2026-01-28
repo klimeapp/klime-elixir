@@ -69,7 +69,7 @@ defmodule Klime.Client do
 
   alias Klime.{Config, Event, EventType, EventContext, LibraryInfo, BatchResponse}
 
-  @version "1.0.0"
+  @version "1.0.1"
 
   @typedoc "Client process reference (pid or registered name)"
   @type client :: GenServer.server()
